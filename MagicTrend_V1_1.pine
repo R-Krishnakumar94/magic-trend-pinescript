@@ -1,0 +1,162 @@
+// @version=6
+indicator("Magic Trend_V1.1", overlay=true)
+
+// === Inputs ===
+cciLength = input.int(20, title="CCI Length")
+atrLength = input.int(5, title="ATR Length")
+multiplier = input.float(1.0, title="ATR Multiplier")
+originalColoring = input.bool(true, title="Use Original Coloring")
+showSignals = input.bool(true, title="Show Buy/Sell Signals")
+showProjection = input.bool(true, title="Show Projected Trend Line")
+showMTFDashboard = input.bool(true, title="Show Multi-Timeframe Trend Dashboard")
+
+// Slope classification thresholds
+slopeHigh = input.float(0.5, title="High Slope Threshold", step=0.1)
+slopeLow = input.float(0.15, title="Low Slope Threshold", step=0.05)
+
+// === CCI & ATR Calculations ===
+thisCCI = ta.cci(close, cciLength)
+lastCCI = nz(thisCCI[1])
+atrSmoothed = ta.sma(ta.tr(true), atrLength)
+
+bufferDn = high + multiplier * atrSmoothed
+bufferUp = low - multiplier * atrSmoothed
+
+bufferUp := (thisCCI >= 0 and lastCCI < 0) ? nz(bufferDn[1]) : bufferUp
+bufferDn := (thisCCI <= 0 and lastCCI > 0) ? nz(bufferUp[1]) : bufferDn
+
+bufferUp := (thisCCI >= 0 and bufferUp < nz(bufferUp[1])) ? nz(bufferUp[1]) : bufferUp
+bufferDn := (thisCCI <= 0 and bufferDn > nz(bufferDn[1])) ? nz(bufferDn[1]) : bufferDn
+
+trendLine = thisCCI >= 0 ? bufferUp : bufferDn
+
+// === Trend Direction Detection ===
+var int direction = 0
+direction := trendLine > nz(trendLine[1]) ? 1 : trendLine < nz(trendLine[1]) ? -1 : direction
+
+colorByDirection = direction == 1 ? color.lime : color.red
+colorByCCI = thisCCI >= 0 ? color.lime : color.red
+finalColor = originalColoring ? colorByCCI : colorByDirection
+
+// === Buy/Sell Signals ===
+trendUp = direction == 1 and direction[1] == -1
+trendDown = direction == -1 and direction[1] == 1
+
+// === Projected Trend Line ===
+var float lastTrend = na
+lastTrend := not na(trendLine) ? trendLine : lastTrend
+projectedTrend = showProjection ? lastTrend : na
+
+// === Trend Slope Classification ===
+slope = trendLine - nz(trendLine[1])
+
+var string trendText = ""
+var color trendColor = color.gray
+
+if slope > slopeHigh
+    trendText := "HIGHLY BULLISH"
+    trendColor := color.new(color.green, 0)
+else if slope > slopeLow
+    trendText := "MODERATELY BULLISH"
+    trendColor := color.new(color.lime, 0)
+else if slope < -slopeHigh
+    trendText := "HIGHLY BEARISH"
+    trendColor := color.new(color.red, 0)
+else if slope < -slopeLow
+    trendText := "MODERATELY BEARISH"
+    trendColor := color.new(color.orange, 0)
+else
+    trendText := "SIDEWAYS"
+    trendColor := color.new(color.gray, 0)
+
+// === Plot Trend Line and Projected Line ===
+plot(trendLine, color=finalColor, linewidth=3, title="Trend Magic Line")
+plot(projectedTrend, color=color.new(finalColor, 60), linewidth=2, title="Projected Trend", style=plot.style_linebr)
+
+// === Signal Markers ===
+plotshape(showSignals and trendUp, title="Buy Signal", location=location.belowbar, style=shape.labelup,
+          color=color.green, size=size.small, text="B")
+plotshape(showSignals and trendDown, title="Sell Signal", location=location.abovebar, style=shape.labeldown,
+          color=color.red, size=size.small, text="S")
+
+// === Alerts ===
+alertcondition(trendUp, title="Buy Alert", message="Trend Magic: Buy Signal Triggered")
+alertcondition(trendDown, title="Sell Alert", message="Trend Magic: Sell Signal Triggered")
+
+// === Trend Table (Top Right) ===
+var table trendTable = table.new(position.top_right, 2, 2, border_width=1)
+
+if bar_index % 10 == 0  // Limit table updates to reduce flicker
+    table.cell(trendTable, 0, 0, "Symbol", bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+    table.cell(trendTable, 1, 0, syminfo.ticker, bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+    table.cell(trendTable, 0, 1, "Trend", bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+    table.cell(trendTable, 1, 1, trendText, bgcolor=trendColor, text_color=color.white, text_halign=text.align_center)
+
+// === COMPACT MULTI-TIMEFRAME DASHBOARD (Bottom Right) ===
+getTrendStateLabel(tf) =>
+    cciVal = request.security(syminfo.tickerid, tf, ta.cci(close, cciLength))
+    atrVal = request.security(syminfo.tickerid, tf, ta.sma(ta.tr(true), atrLength))
+    upLine = request.security(syminfo.tickerid, tf, low - multiplier * atrVal)
+    dnLine = request.security(syminfo.tickerid, tf, high + multiplier * atrVal)
+    trend = cciVal >= 0 ? upLine : dnLine
+    slope = trend - nz(trend[1])
+
+    var string label = ""
+    var color bgColor = color.gray
+
+    if slope > slopeHigh
+        label := "UP"
+        bgColor := color.new(color.green, 0)
+    else if slope > slopeLow
+        label := "MOD UP"
+        bgColor := color.new(color.lime, 0)
+    else if slope < -slopeHigh
+        label := "DN"
+        bgColor := color.new(color.red, 0)
+    else if slope < -slopeLow
+        label := "MOD DN"
+        bgColor := color.new(color.orange, 0)
+    else
+        label := "SIDE"
+        bgColor := color.new(color.gray, 0)
+
+    [label, bgColor]
+
+showMTFDashboard = input.bool(true, title="Show Multi-Timeframe Trend Dashboard", inline="mtf")
+
+if showMTFDashboard
+    [dLbl, dClr] = getTrendStateLabel("D")
+    [wLbl, wClr] = getTrendStateLabel("W")
+    [mLbl, mClr] = getTrendStateLabel("M")
+    [qLbl, qClr] = getTrendStateLabel("3M")
+    [yLbl, yClr] = getTrendStateLabel("12M")
+
+    var table mtfTable = table.new(position.bottom_right, 5, 2, border_width=1)
+
+    if bar_index % 10 == 0
+        table.cell(mtfTable, 0, 0, "D", bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 1, 0, "W", bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 2, 0, "M", bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 3, 0, "Q", bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 4, 0, "Y", bgcolor=color.blue, text_color=color.white, text_halign=text.align_center)
+
+        table.cell(mtfTable, 0, 1, dLbl, bgcolor=dClr, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 1, 1, wLbl, bgcolor=wClr, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 2, 1, mLbl, bgcolor=mClr, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 3, 1, qLbl, bgcolor=qClr, text_color=color.white, text_halign=text.align_center)
+        table.cell(mtfTable, 4, 1, yLbl, bgcolor=yClr, text_color=color.white, text_halign=text.align_center)
+
+// === SUPPORT & RESISTANCE ZONES (Filled Bands) ===
+showSRZones = input.bool(true, title="Show Support/Resistance Zones")
+srLookback = input.int(20, title="Swing High/Low Lookback")
+
+swingHigh = ta.highest(high, srLookback)
+swingLow = ta.lowest(low, srLookback)
+
+plotHigh = showSRZones ? swingHigh : na
+plotLow = showSRZones ? swingLow : na
+
+resistanceLine = plot(plotHigh, title="Resistance", color=color.red, linewidth=1)
+supportLine = plot(plotLow, title="Support", color=color.green, linewidth=1)
+
+fill(resistanceLine, supportLine, color=color.new(color.gray, 85), title="S/R Zone Fill")
