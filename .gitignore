@@ -1,0 +1,19 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Node (if examples or tooling added later)
+node_modules/
+
+# Python (if tooling added later)
+__pycache__/
+*.pyc
+
+# Archives
+*.zip
+*.tar
+*.gz
